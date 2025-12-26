@@ -1,10 +1,6 @@
-"""
-Signals pour créer automatiquement les tarifications
-quand on crée une nouvelle destination dans l'admin
-"""
-
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
+from django.db.models.signals import post_save
 from .models import Destination, TypeService, Tarification
 
 
@@ -52,3 +48,40 @@ def creer_tarifications_automatiquement(sender, instance, created, **kwargs):
                     'tarif_volume': 20.00
                 }
             )
+
+@receiver(post_save, sender='app1.Expedition')
+def expedition_saved(sender, instance, created, **kwargs):
+    if instance.facture:
+        from .service import calculer_montants_facture
+        calculer_montants_facture(instance.facture)
+        instance.facture.save(update_fields=[
+            'montant_ht', 'montant_tva', 'montant_ttc',
+            'montant_restant', 'statut_paiement'
+        ])
+
+@receiver(post_delete, sender='app1.Expedition')
+def expedition_deleted(sender, instance, **kwargs):
+    if instance.facture:
+        from .service import calculer_montants_facture
+        calculer_montants_facture(instance.facture)
+        instance.facture.save(update_fields=[
+            'montant_ht', 'montant_tva', 'montant_ttc',
+            'montant_restant', 'statut_paiement'
+        ])
+
+@receiver(post_save, sender='app1.Paiement')
+def paiement_saved(sender, instance, created, **kwargs):
+    if instance.statut == 'VALIDE':
+        client = instance.facture.client
+        client.mettre_a_jour_solde()
+
+@receiver(post_delete, sender='app1.Paiement')
+def paiement_deleted(sender, instance, **kwargs):
+    client = instance.facture.client
+    client.mettre_a_jour_solde()
+
+@receiver(post_save, sender='app1.Facture')
+def facture_saved(sender, instance, created, **kwargs):
+    if not created:
+        client = instance.client
+        client.mettre_a_jour_solde()
