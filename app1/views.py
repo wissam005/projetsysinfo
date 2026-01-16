@@ -3023,31 +3023,35 @@ def cloturer_reclamation(request, reclamation_id):
     })
 
 def annuler_reclamation(request, reclamation_id):
-    """
-    Annuler une réclamation (demande infondée, doublon, etc.)
-    """
     reclamation = get_object_or_404(Reclamation, id=reclamation_id)
     
+    from views import ReclamationAnnulationForm
     if request.method == 'POST':
-        try:
-            motif = request.POST.get('motif', '')
-            agent = request.POST.get('agent', 'Agent')
-            
-            if not motif:
-                messages.error(request, "Le motif d'annulation est obligatoire")
-                return redirect('detail_reclamation', reclamation_id=reclamation.id)
-            
-            ReclamationService.annuler_reclamation(reclamation, motif, agent)
-            
-            messages.success(request, f"✅ Réclamation {reclamation.numero_reclamation} annulée !")
-            return redirect('liste_reclamations')
-            
-        except Exception as e:
-            messages.error(request, f"❌ Erreur : {str(e)}")
-            return redirect('detail_reclamation', reclamation_id=reclamation.id)
+        form = ReclamationAnnulationForm(request.POST)
+        
+        if form.is_valid():
+            try:
+                motif = form.cleaned_data['motif']
+                agent = form.cleaned_data['agent']
+                
+                ReclamationService.annuler_reclamation(reclamation, motif, agent)
+                
+                messages.success(request, f"✅ Réclamation {reclamation.numero_reclamation} annulée !")
+                return redirect('liste_reclamations')
+                
+            except Exception as e:
+                messages.error(request, f"❌ Erreur : {str(e)}")
+        else:
+            # Afficher les erreurs de validation
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(request, error)
+    else:
+        form = ReclamationAnnulationForm()
     
     return render(request, 'reclamations/annuler.html', {
         'reclamation': reclamation,
+        'form': form,  # ← Ajouter le formulaire au contexte
     })
 
 def supprimer_reclamation(request, reclamation_id):
@@ -3444,3 +3448,350 @@ def changer_mot_de_passe(request):
         form = ChangerMotDePasseForm()
     
     return render(request, 'auth/changer_mot_de_passe.html', {'form': form})
+
+from django.shortcuts import render
+from django.contrib.auth.decorators import login_required
+from django.http import JsonResponse
+from datetime import datetime, timedelta
+from .services.analytics_service import AnalyticsService
+from .services.stats_service import StatsService
+from .models import Expedition, Tournee, Facture, Client, Chauffeur, Incident, Paiement
+
+# Initialisation des services
+analytics = AnalyticsService(Expedition, Tournee, Facture, Client, Chauffeur, Incident)
+stats = StatsService(Expedition, Tournee, Facture, Paiement)
+
+
+@login_required
+def dashboard_analytics(request):
+    """Vue principale du tableau de bord d'analyse"""
+    context = {
+        'page_title': 'Analyse et Tableaux de Bord',
+        'section': 'analytics'
+    }
+    return render(request, 'analytics/dashboard.html', context)
+
+
+@login_required
+def analyse_commerciale(request):
+    """Page d'analyse commerciale"""
+    # Récupérer les paramètres de période
+    period_type = request.GET.get('period', 'year')  # 'year' ou 'multi_year'
+    year = request.GET.get('year', datetime.now().year)
+    
+    try:
+        year = int(year)
+    except ValueError:
+        year = datetime.now().year
+    
+    if period_type == 'year':
+        # Analyse sur 12 mois
+        start_date = datetime(year, 1, 1)
+        end_date = datetime(year, 12, 31, 23, 59, 59)
+    else:
+        # Analyse sur plusieurs années (3 ans par défaut)
+        start_date = datetime(year - 2, 1, 1)
+        end_date = datetime(year, 12, 31, 23, 59, 59)
+    
+    context = {
+        'page_title': 'Analyse Commerciale',
+        'section': 'analytics',
+        'subsection': 'commercial',
+        'year': year,
+        'period_type': period_type
+    }
+    
+    return render(request, 'analytics/commercial.html', context)
+
+
+@login_required
+def analyse_operationnelle(request):
+    """Page d'analyse opérationnelle"""
+    period_type = request.GET.get('period', 'year')
+    year = request.GET.get('year', datetime.now().year)
+    
+    try:
+        year = int(year)
+    except ValueError:
+        year = datetime.now().year
+    
+    context = {
+        'page_title': 'Analyse Opérationnelle',
+        'section': 'analytics',
+        'subsection': 'operational',
+        'year': year,
+        'period_type': period_type
+    }
+    
+    return render(request, 'analytics/operational.html', context)
+
+
+# ========== API ENDPOINTS pour les données ==========
+
+@login_required
+def api_evolution_expeditions(request):
+    """API: Évolution des expéditions"""
+    period = request.GET.get('period', 'month')  # 'month' ou 'year'
+    year = int(request.GET.get('year', datetime.now().year))
+    
+    if period == 'month':
+        start_date = datetime(year, 1, 1)
+        end_date = datetime(year, 12, 31, 23, 59, 59)
+    else:
+        # Multi-année
+        years = int(request.GET.get('years', 3))
+        start_date = datetime(year - years + 1, 1, 1)
+        end_date = datetime(year, 12, 31, 23, 59, 59)
+    
+    data = analytics.get_expeditions_evolution(start_date, end_date, period)
+    
+    return JsonResponse({
+        'success': True,
+        'data': data,
+        'period': period
+    })
+
+
+@login_required
+def api_chiffre_affaires(request):
+    """API: Évolution du chiffre d'affaires"""
+    period = request.GET.get('period', 'month')
+    year = int(request.GET.get('year', datetime.now().year))
+    
+    if period == 'month':
+        start_date = datetime(year, 1, 1)
+        end_date = datetime(year, 12, 31, 23, 59, 59)
+    else:
+        years = int(request.GET.get('years', 3))
+        start_date = datetime(year - years + 1, 1, 1)
+        end_date = datetime(year, 12, 31, 23, 59, 59)
+    
+    data = analytics.get_chiffre_affaires_evolution(start_date, end_date, period)
+    
+    return JsonResponse({
+        'success': True,
+        'data': data
+    })
+
+
+@login_required
+def api_top_clients(request):
+    """API: Top clients"""
+    year = int(request.GET.get('year', datetime.now().year))
+    by = request.GET.get('by', 'volume')  # 'volume' ou 'valeur'
+    limit = int(request.GET.get('limit', 10))
+    
+    start_date = datetime(year, 1, 1)
+    end_date = datetime(year, 12, 31, 23, 59, 59)
+    
+    data = analytics.get_top_clients(start_date, end_date, limit, by)
+    
+    return JsonResponse({
+        'success': True,
+        'data': data,
+        'criteria': by
+    })
+
+
+@login_required
+def api_destinations_populaires(request):
+    """API: Destinations les plus sollicitées"""
+    year = int(request.GET.get('year', datetime.now().year))
+    limit = int(request.GET.get('limit', 10))
+    
+    start_date = datetime(year, 1, 1)
+    end_date = datetime(year, 12, 31, 23, 59, 59)
+    
+    data = analytics.get_destinations_populaires(start_date, end_date, limit)
+    
+    return JsonResponse({
+        'success': True,
+        'data': data
+    })
+
+
+@login_required
+def api_services_performance(request):
+    """API: Performance par type de service"""
+    year = int(request.GET.get('year', datetime.now().year))
+    
+    start_date = datetime(year, 1, 1)
+    end_date = datetime(year, 12, 31, 23, 59, 59)
+    
+    data = analytics.get_services_performance(start_date, end_date)
+    
+    return JsonResponse({
+        'success': True,
+        'data': data
+    })
+
+
+@login_required
+def api_evolution_tournees(request):
+    """API: Évolution des tournées"""
+    period = request.GET.get('period', 'month')
+    year = int(request.GET.get('year', datetime.now().year))
+    
+    if period == 'month':
+        start_date = datetime(year, 1, 1)
+        end_date = datetime(year, 12, 31, 23, 59, 59)
+    else:
+        years = int(request.GET.get('years', 3))
+        start_date = datetime(year - years + 1, 1, 1)
+        end_date = datetime(year, 12, 31, 23, 59, 59)
+    
+    data = analytics.get_tournees_evolution(start_date, end_date, period)
+    
+    return JsonResponse({
+        'success': True,
+        'data': data
+    })
+
+
+@login_required
+def api_taux_reussite(request):
+    """API: Taux de réussite des livraisons"""
+    year = int(request.GET.get('year', datetime.now().year))
+    
+    start_date = datetime(year, 1, 1)
+    end_date = datetime(year, 12, 31, 23, 59, 59)
+    
+    data = analytics.get_taux_reussite_livraisons(start_date, end_date)
+    
+    return JsonResponse({
+        'success': True,
+        'data': data
+    })
+
+
+@login_required
+def api_top_chauffeurs(request):
+    """API: Top chauffeurs"""
+    year = int(request.GET.get('year', datetime.now().year))
+    limit = int(request.GET.get('limit', 10))
+    
+    start_date = datetime(year, 1, 1)
+    end_date = datetime(year, 12, 31, 23, 59, 59)
+    
+    data = analytics.get_top_chauffeurs(start_date, end_date, limit)
+    
+    return JsonResponse({
+        'success': True,
+        'data': data
+    })
+
+
+@login_required
+def api_zones_incidents(request):
+    """API: Zones avec le plus d'incidents"""
+    year = int(request.GET.get('year', datetime.now().year))
+    limit = int(request.GET.get('limit', 10))
+    
+    start_date = datetime(year, 1, 1)
+    end_date = datetime(year, 12, 31, 23, 59, 59)
+    
+    data = analytics.get_zones_incidents(start_date, end_date, limit)
+    
+    return JsonResponse({
+        'success': True,
+        'data': data
+    })
+
+
+@login_required
+def api_periodes_activite(request):
+    """API: Périodes de forte activité"""
+    year = int(request.GET.get('year', datetime.now().year))
+    
+    start_date = datetime(year, 1, 1)
+    end_date = datetime(year, 12, 31, 23, 59, 59)
+    
+    data = analytics.get_periodes_forte_activite(start_date, end_date)
+    
+    return JsonResponse({
+        'success': True,
+        'data': data
+    })
+
+
+@login_required
+def api_kpi_dashboard(request):
+    """API: KPI pour le tableau de bord principal"""
+    year = int(request.GET.get('year', datetime.now().year))
+    
+    start_date = datetime(year, 1, 1)
+    end_date = datetime(year, 12, 31, 23, 59, 59)
+    
+    kpi_data = analytics.get_kpi_dashboard(start_date, end_date)
+    kpis = stats.calculate_kpis(start_date, end_date)
+    taux = analytics.get_taux_reussite_livraisons(start_date, end_date)
+    
+    return JsonResponse({
+        'success': True,
+        'data': {
+            'global': kpi_data,
+            'performance': kpis,
+            'livraisons': taux
+        }
+    })
+
+
+@login_required
+def api_comparison_years(request):
+    """API: Comparaison entre deux années"""
+    year1 = int(request.GET.get('year1', datetime.now().year - 1))
+    year2 = int(request.GET.get('year2', datetime.now().year))
+    
+    data = stats.compare_years(year1, year2)
+    
+    return JsonResponse({
+        'success': True,
+        'data': data
+    })
+
+
+@login_required
+def api_rentabilite_service(request):
+    """API: Rentabilité par type de service"""
+    year = int(request.GET.get('year', datetime.now().year))
+    
+    start_date = datetime(year, 1, 1)
+    end_date = datetime(year, 12, 31, 23, 59, 59)
+    
+    data = stats.get_rentabilite_par_service(start_date, end_date)
+    
+    return JsonResponse({
+        'success': True,
+        'data': data
+    })
+
+
+@login_required
+def api_monthly_summary(request):
+    """API: Résumé mensuel"""
+    year = int(request.GET.get('year', datetime.now().year))
+    month = int(request.GET.get('month', datetime.now().month))
+    
+    data = stats.get_monthly_summary(year, month)
+    
+    return JsonResponse({
+        'success': True,
+        'data': data
+    })
+
+
+@login_required
+def export_report(request):
+    """Exporter un rapport en PDF"""
+    # Cette fonction sera à implémenter avec reportlab ou weasyprint
+    # pour générer des PDF des analyses
+    
+    report_type = request.GET.get('type', 'commercial')
+    year = int(request.GET.get('year', datetime.now().year))
+    
+    # TODO: Implémenter la génération de PDF
+    
+    return JsonResponse({
+        'success': False,
+        'message': 'Fonctionnalité en développement'
+    })

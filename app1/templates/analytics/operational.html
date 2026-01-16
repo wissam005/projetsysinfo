@@ -1,0 +1,684 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Analyse Opérationnelle{% endblock %}
+
+{% block extra_css %}
+<style>
+    .operational-card {
+        background: white;
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        margin-bottom: 24px;
+    }
+    
+    .kpi-box {
+        text-align: center;
+        padding: 20px;
+        border: 2px solid #e5e7eb;
+        border-radius: 10px;
+        transition: all 0.3s;
+    }
+    
+    .kpi-box:hover {
+        border-color: #10b981;
+        transform: translateY(-3px);
+    }
+    
+    .kpi-icon {
+        font-size: 2.5rem;
+        margin-bottom: 12px;
+    }
+    
+    .kpi-number {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #1f2937;
+        margin: 8px 0;
+    }
+    
+    .kpi-label {
+        color: #6b7280;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+    }
+    
+    .performance-indicator {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-top: 10px;
+    }
+    
+    .performance-excellent {
+        background: #dcfce7;
+        color: #16a34a;
+    }
+    
+    .performance-good {
+        background: #fef3c7;
+        color: #d97706;
+    }
+    
+    .performance-warning {
+        background: #fee2e2;
+        color: #dc2626;
+    }
+    
+    .driver-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 12px;
+        transition: all 0.2s;
+    }
+    
+    .driver-card:hover {
+        border-color: #2563eb;
+        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.1);
+    }
+    
+    .badge-rank {
+        display: inline-block;
+        width: 32px;
+        height: 32px;
+        line-height: 32px;
+        text-align: center;
+        border-radius: 50%;
+        font-weight: 700;
+        color: white;
+        margin-right: 12px;
+    }
+    
+    .rank-1 { background: #f59e0b; }
+    .rank-2 { background: #94a3b8; }
+    .rank-3 { background: #cd7f32; }
+    .rank-other { background: #6b7280; }
+
+    .error-message {
+        background: #fee2e2;
+        color: #dc2626;
+        padding: 16px;
+        border-radius: 8px;
+        margin: 16px 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Navigation -->
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Tableaux de Bord</a></li>
+            <li class="breadcrumb-item active">Analyse Opérationnelle</li>
+        </ol>
+    </nav>
+
+    <!-- En-tête -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h2 mb-2">🚚 Analyse Opérationnelle</h1>
+            <p class="text-muted">Performance logistique et gestion des tournées</p>
+        </div>
+        <div class="d-flex gap-3">
+            <select id="yearSelect" class="form-select" style="width: auto;">
+                <option value="2023">2023</option>
+                <option value="2024">2024</option>
+                <option value="2025" selected>2025</option>
+                <option value="2026">2026</option>
+            </select>
+            <button class="btn btn-outline-success" onclick="exportReport()">
+                <i class="bi bi-file-earmark-spreadsheet"></i> Exporter
+            </button>
+        </div>
+    </div>
+
+    <!-- Message d'erreur -->
+    <div id="errorContainer" style="display: none;">
+        <div class="error-message">
+            <strong>Erreur :</strong> <span id="errorMessage"></span>
+        </div>
+    </div>
+
+    <!-- KPIs Opérationnels -->
+    <div class="operational-card">
+        <h4 class="mb-4">📊 Indicateurs de Performance</h4>
+        <div class="row g-4">
+            <div class="col-md-3">
+                <div class="kpi-box">
+                    <div class="kpi-icon">🚛</div>
+                    <div class="kpi-number" id="total-tournees">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                    </div>
+                    <div class="kpi-label">Tournées Effectuées</div>
+                    <div class="performance-indicator performance-excellent" id="perf-tournees">
+                        +0%
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="kpi-box">
+                    <div class="kpi-icon">✅</div>
+                    <div class="kpi-number" id="taux-reussite">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                    </div>
+                    <div class="kpi-label">Taux de Réussite</div>
+                    <div class="performance-indicator performance-excellent">
+                        <i class="bi bi-check-circle"></i> Excellent
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="kpi-box">
+                    <div class="kpi-icon">🛣️</div>
+                    <div class="kpi-number" id="total-km">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                    </div>
+                    <div class="kpi-label">Kilométrage Total</div>
+                    <div class="performance-indicator performance-good" id="perf-km">
+                        Km parcourus
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="kpi-box">
+                    <div class="kpi-icon">⏱️</div>
+                    <div class="kpi-number" id="delai-moyen">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                    </div>
+                    <div class="kpi-label">Délai Moyen</div>
+                    <div class="performance-indicator performance-good">
+                        jours
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Évolution et Taux de Réussite -->
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="operational-card">
+                <h4 class="mb-4">📈 Évolution des Tournées (12 mois)</h4>
+                <canvas id="chartTourneesEvolution" height="280"></canvas>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="operational-card">
+                <h4 class="mb-4">📦 Répartition des Livraisons</h4>
+                <canvas id="chartLivraisons" height="280"></canvas>
+                <div class="mt-4">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>✅ Livrées</span>
+                        <strong id="stat-livrees">-</strong>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>❌ Échecs</span>
+                        <strong id="stat-echecs">-</strong>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>⏳ En cours</span>
+                        <strong id="stat-encours">-</strong>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>⏰ Retards</span>
+                        <strong id="stat-retards">-</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Chauffeurs -->
+    <div class="operational-card">
+        <h4 class="mb-4">👨‍✈️ Top 10 Chauffeurs - Performance</h4>
+        <div class="row">
+            <div class="col-lg-7">
+                <canvas id="chartTopChauffeurs" height="400"></canvas>
+            </div>
+            <div class="col-lg-5">
+                <div id="driversRanking">
+                    <div class="text-center text-muted">
+                        <div class="spinner-border" role="status"></div>
+                        <p>Chargement...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Zones à Incidents -->
+    <div class="operational-card">
+        <h4 class="mb-4">⚠️ Zones Géographiques avec Incidents</h4>
+        <div class="row">
+            <div class="col-lg-6">
+                <canvas id="chartZonesIncidents" height="300"></canvas>
+            </div>
+            <div class="col-lg-6">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Zone</th>
+                            <th>Nombre d'Incidents</th>
+                            <th>Types</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableIncidents">
+                        <tr>
+                            <td colspan="3" class="text-center text-muted">
+                                <div class="spinner-border spinner-border-sm" role="status"></div>
+                                Chargement...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Périodes d'Activité -->
+    <div class="row">
+        <div class="col-lg-6">
+            <div class="operational-card">
+                <h4 class="mb-4">📅 Activité par Jour de la Semaine</h4>
+                <canvas id="chartJoursSemaine" height="300"></canvas>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="operational-card">
+                <h4 class="mb-4">🔥 Périodes de Forte Activité</h4>
+                <canvas id="chartMoisForts" height="300"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- KPIs Détaillés -->
+    <div class="operational-card">
+        <h4 class="mb-4">📊 Indicateurs Détaillés</h4>
+        <div class="row">
+            <div class="col-md-4">
+                <div class="border rounded p-3 mb-3">
+                    <h6>🚛 Coût Moyen par Tournée</h6>
+                    <div class="h3 text-primary mb-0" id="cout-moyen-km">-</div>
+                    <small class="text-muted">Kilomètres parcourus</small>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="border rounded p-3 mb-3">
+                    <h6>⛽ Consommation Moyenne</h6>
+                    <div class="h3 text-warning mb-0" id="conso-moyenne">-</div>
+                    <small class="text-muted">Litres par tournée</small>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="border rounded p-3 mb-3">
+                    <h6>📦 Taux de Remplissage</h6>
+                    <div class="h3 text-success mb-0" id="taux-remplissage">-</div>
+                    <small class="text-muted">Capacité utilisée</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+
+let charts = {};
+let currentYear = 2025;
+
+function showError(message) {
+    console.error('Erreur:', message);
+    const errorContainer = document.getElementById('errorContainer');
+    const errorMessage = document.getElementById('errorMessage');
+    errorMessage.textContent = message;
+    errorContainer.style.display = 'block';
+    setTimeout(() => errorContainer.style.display = 'none', 5000);
+}
+
+async function fetchAPI(url) {
+    try {
+        console.log('Appel API:', url);
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        const result = await response.json();
+        console.log('Réponse API:', result);
+        return result;
+    } catch (error) {
+        console.error('Erreur fetchAPI:', error);
+        showError(`Erreur: ${error.message}`);
+        throw error;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Page opérationnelle chargée');
+    currentYear = parseInt(document.getElementById('yearSelect').value);
+    
+    document.getElementById('yearSelect').addEventListener('change', function() {
+        currentYear = parseInt(this.value);
+        console.log('Année changée:', currentYear);
+        loadAllData();
+    });
+    
+    loadAllData();
+});
+
+async function loadAllData() {
+    console.log('=== Chargement données opérationnelles ===');
+    try {
+        await loadKPIs();
+        await loadTourneesChart();
+        await loadLivraisonsChart();
+        await loadTopChauffeurs();
+        await loadZonesIncidents();
+        await loadPeriodesActivite();
+        console.log('=== Données opérationnelles chargées ===');
+    } catch (error) {
+        console.error('Erreur chargement global:', error);
+    }
+}
+
+async function loadKPIs() {
+    console.log('→ Chargement KPIs...');
+    try {
+        const result = await fetchAPI(`/analytics/api/kpi-dashboard/?year=${currentYear}`);
+        
+        if (result.success && result.data) {
+            const data = result.data;
+            
+            document.getElementById('total-tournees').textContent = 
+                (data.global.tournees?.total || 0).toLocaleString();
+            
+            const km = data.global.tournees?.kilometrage_total || 0;
+            document.getElementById('total-km').textContent = 
+                km > 1000 ? (km / 1000).toFixed(1) + 'K' : km.toFixed(0);
+            
+            document.getElementById('taux-reussite').textContent = 
+                (data.livraisons?.taux_reussite || 0).toFixed(1) + '%';
+            
+            document.getElementById('delai-moyen').textContent = 
+                (data.performance?.delai_moyen_livraison || 3).toFixed(1);
+            
+            // KPIs détaillés
+            if (data.performance) {
+                document.getElementById('cout-moyen-km').textContent = 
+                    (data.performance.cout_moyen_tournee?.kilometrage || 0).toFixed(1) + ' km';
+                document.getElementById('conso-moyenne').textContent = 
+                    (data.performance.cout_moyen_tournee?.carburant || 0).toFixed(1) + ' L';
+                document.getElementById('taux-remplissage').textContent = 
+                    (data.performance.taux_remplissage_vehicules || 0).toFixed(1) + '%';
+            }
+            
+            console.log('✓ KPIs chargés');
+        }
+    } catch (error) {
+        console.error('✗ Erreur KPIs:', error);
+        document.getElementById('total-tournees').textContent = '0';
+        document.getElementById('total-km').textContent = '0';
+        document.getElementById('taux-reussite').textContent = '0%';
+        document.getElementById('delai-moyen').textContent = '0';
+    }
+}
+
+async function loadTourneesChart() {
+    console.log('→ Chargement graphique tournées...');
+    try {
+        const result = await fetchAPI(`/analytics/api/evolution-tournees/?year=${currentYear}&period=month`);
+        
+        if (result.success && result.data && result.data.length > 0) {
+            const labels = result.data.map(d => {
+                const date = new Date(d.periode);
+                return date.toLocaleDateString('fr-FR', { month: 'short' });
+            });
+            const data = result.data.map(d => d.nombre_tournees || 0);
+            
+            if (charts.tournees) charts.tournees.destroy();
+            
+            const ctx = document.getElementById('chartTourneesEvolution').getContext('2d');
+            charts.tournees = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Nombre de tournées',
+                        data: data,
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+            console.log('✓ Graphique tournées chargé');
+        }
+    } catch (error) {
+        console.error('✗ Erreur graphique tournées:', error);
+    }
+}
+
+async function loadLivraisonsChart() {
+    console.log('→ Chargement graphique livraisons...');
+    try {
+        const result = await fetchAPI(`/analytics/api/taux-reussite/?year=${currentYear}`);
+        
+        if (result.success && result.data) {
+            const data = result.data;
+            
+            document.getElementById('stat-livrees').textContent = data.livres || 0;
+            document.getElementById('stat-echecs').textContent = data.echecs || 0;
+            document.getElementById('stat-encours').textContent = data.en_cours || 0;
+            document.getElementById('stat-retards').textContent = data.retards || 0;
+            
+            if (charts.livraisons) charts.livraisons.destroy();
+            
+            const ctx = document.getElementById('chartLivraisons').getContext('2d');
+            charts.livraisons = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Livrées', 'Échecs', 'En cours'],
+                    datasets: [{
+                        data: [data.livres || 0, data.echecs || 0, data.en_cours || 0],
+                        backgroundColor: ['#10b981', '#ef4444', '#f59e0b']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom' } }
+                }
+            });
+            console.log('✓ Graphique livraisons chargé');
+        }
+    } catch (error) {
+        console.error('✗ Erreur graphique livraisons:', error);
+    }
+}
+
+async function loadTopChauffeurs() {
+    console.log('→ Chargement top chauffeurs...');
+    try {
+        const result = await fetchAPI(`/analytics/api/top-chauffeurs/?year=${currentYear}&limit=10`);
+        
+        if (result.success && result.data && result.data.length > 0) {
+            const labels = result.data.map(d => `${d.chauffeur__nom || ''} ${d.chauffeur__prenom || ''}`);
+            const data = result.data.map(d => d.nombre_tournees || 0);
+            
+            if (charts.chauffeurs) charts.chauffeurs.destroy();
+            
+            const ctx = document.getElementById('chartTopChauffeurs').getContext('2d');
+            charts.chauffeurs = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Nombre de tournées',
+                        data: data,
+                        backgroundColor: '#f59e0b'
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            });
+            
+            // Classement
+            const ranking = document.getElementById('driversRanking');
+            ranking.innerHTML = result.data.map((driver, index) => {
+                const rankClass = index === 0 ? 'rank-1' : index === 1 ? 'rank-2' : index === 2 ? 'rank-3' : 'rank-other';
+                return `
+                    <div class="driver-card">
+                        <span class="badge-rank ${rankClass}">${index + 1}</span>
+                        <strong>${driver.chauffeur__nom || 'N/A'} ${driver.chauffeur__prenom || ''}</strong>
+                        <div class="mt-2">
+                            <small>🚛 ${driver.nombre_tournees || 0} tournées | 
+                            📦 ${driver.nombre_livraisons || 0} livraisons | 
+                            ✅ ${driver.taux_reussite || 0}%</small>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            console.log('✓ Top chauffeurs chargé');
+        } else {
+            document.getElementById('driversRanking').innerHTML = 
+                '<p class="text-center text-muted">Aucun chauffeur disponible</p>';
+        }
+    } catch (error) {
+        console.error('✗ Erreur top chauffeurs:', error);
+    }
+}
+
+async function loadZonesIncidents() {
+    console.log('→ Chargement zones incidents...');
+    try {
+        const result = await fetchAPI(`/analytics/api/zones-incidents/?year=${currentYear}&limit=10`);
+        
+        if (result.success && result.data && result.data.length > 0) {
+            const labels = result.data.map(d => d.expedition__destination__ville || 'N/A');
+            const data = result.data.map(d => d.nombre_incidents || 0);
+            
+            if (charts.zones) charts.zones.destroy();
+            
+            const ctx = document.getElementById('chartZonesIncidents').getContext('2d');
+            charts.zones = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Nombre d\'incidents',
+                        data: data,
+                        backgroundColor: '#ef4444'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+            
+            const tbody = document.getElementById('tableIncidents');
+            tbody.innerHTML = result.data.map(zone => `
+                <tr>
+                    <td>${zone.expedition__destination__ville || 'N/A'}, ${zone.expedition__destination__pays || 'N/A'}</td>
+                    <td><span class="badge bg-danger">${zone.nombre_incidents || 0}</span></td>
+                    <td>${zone.types_incidents || 0}</td>
+                </tr>
+            `).join('');
+            
+            console.log('✓ Zones incidents chargées');
+        } else {
+            const tbody = document.getElementById('tableIncidents');
+            tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">Aucun incident</td></tr>';
+        }
+    } catch (error) {
+        console.error('✗ Erreur zones incidents:', error);
+    }
+}
+
+async function loadPeriodesActivite() {
+    console.log('→ Chargement périodes activité...');
+    try {
+        const result = await fetchAPI(`/analytics/api/periodes-activite/?year=${currentYear}`);
+        
+        if (result.success && result.data) {
+            // Jours semaine
+            const joursData = result.data.jours_forts;
+            if (joursData && joursData.length > 0) {
+                if (charts.jours) charts.jours.destroy();
+                
+                const ctxJours = document.getElementById('chartJoursSemaine').getContext('2d');
+                charts.jours = new Chart(ctxJours, {
+                    type: 'radar',
+                    data: {
+                        labels: joursData.map(d => d.jour || 'N/A'),
+                        datasets: [{
+                            label: 'Expéditions',
+                            data: joursData.map(d => d.nombre_expeditions || 0),
+                            backgroundColor: 'rgba(37, 99, 235, 0.2)',
+                            borderColor: '#2563eb'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false
+                    }
+                });
+            }
+            
+            // Mois forts
+            const moisData = result.data.mois_forts;
+            if (moisData && moisData.length > 0) {
+                if (charts.mois) charts.mois.destroy();
+                
+                const ctxMois = document.getElementById('chartMoisForts').getContext('2d');
+                charts.mois = new Chart(ctxMois, {
+                    type: 'bar',
+                    data: {
+                        labels: moisData.map(d => {
+                            const date = new Date(d.mois);
+                            return date.toLocaleDateString('fr-FR', { month: 'long' });
+                        }),
+                        datasets: [{
+                            label: 'Expéditions',
+                            data: moisData.map(d => d.nombre_expeditions || 0),
+                            backgroundColor: '#8b5cf6'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: { y: { beginAtZero: true } }
+                    }
+                });
+            }
+            
+            console.log('✓ Périodes activité chargées');
+        }
+    } catch (error) {
+        console.error('✗ Erreur périodes activité:', error);
+    }
+}
+
+function exportReport() {
+    alert('Export en développement');
+}
+</script>
+{% endblock %}

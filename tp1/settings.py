@@ -40,6 +40,7 @@ INSTALLED_APPS = [
 
     'phonenumber_field',
     'app1',  
+    'notifications'
 ]
 
 # Modèle d'utilisateur personnalisé
@@ -136,9 +137,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/4.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'fr-fr'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Africa/Algiers'
 
 USE_I18N = True
 

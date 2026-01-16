@@ -819,6 +819,63 @@ class ChangerMotDePasseForm(forms.Form):
             raise forms.ValidationError("Les mots de passe ne correspondent pas")
         
         return cleaned_data
+    
+    # À AJOUTER à la fin de votre forms.py (après ReclamationResolutionForm)
+
+class ReclamationAnnulationForm(forms.Form):
+    """
+    Formulaire pour annuler une réclamation avec motif
+    """
+    motif = forms.CharField(
+        label="Motif d'annulation *",
+        widget=forms.Textarea(attrs={'rows': 3, 'placeholder': 'Ex: Doublon, demande infondée, client a retiré sa réclamation...'}),
+        help_text="Expliquez pourquoi cette réclamation est annulée"
+    )
+    
+    agent = forms.CharField(
+        label="Agent responsable *",
+        max_length=100,
+        help_text="Nom de l'agent qui annule la réclamation"
+    )
+    
+    def clean_motif(self):
+        """Validation : Le motif doit faire au moins 10 caractères"""
+        motif = self.cleaned_data.get('motif')
+        
+        if motif and len(motif.strip()) < 10:
+            raise forms.ValidationError(
+                "Le motif doit contenir au moins 10 caractères"
+            )
+        
+        return motif.strip()
+
+class IncidentAnnulationForm(forms.Form):
+    """
+    Formulaire pour annuler un incident avec motif
+    (facultatif mais recommandé pour la cohérence)
+    """
+    motif = forms.CharField(
+        label="Motif d'annulation *",
+        widget=forms.Textarea(attrs={'rows': 3, 'placeholder': 'Ex: Fausse alerte, doublon...'}),
+        help_text="Expliquez pourquoi cet incident est annulé"
+    )
+    
+    agent = forms.CharField(
+        label="Agent responsable *",
+        max_length=100,
+        help_text="Nom de l'agent qui annule l'incident"
+    )
+    
+    def clean_motif(self):
+        """Validation : Le motif doit faire au moins 10 caractères"""
+        motif = self.cleaned_data.get('motif')
+        
+        if motif and len(motif.strip()) < 10:
+            raise forms.ValidationError(
+                "Le motif doit contenir au moins 10 caractères"
+            )
+        
+        return motif.strip()
 
 
 

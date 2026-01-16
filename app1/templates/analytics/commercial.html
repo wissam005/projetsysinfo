@@ -1,0 +1,746 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Analyse Commerciale{% endblock %}
+
+{% block extra_css %}
+<style>
+    .analysis-section {
+        background: white;
+        border-radius: 12px;
+        padding: 32px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        margin-bottom: 24px;
+    }
+    
+    .metric-card {
+        border: 2px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 20px;
+        text-align: center;
+        transition: all 0.3s;
+    }
+    
+    .metric-card:hover {
+        border-color: #2563eb;
+        transform: translateY(-2px);
+    }
+    
+    .metric-value {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #1f2937;
+        margin: 8px 0;
+    }
+    
+    .metric-label {
+        color: #6b7280;
+        font-size: 0.9rem;
+    }
+    
+    .evolution-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 16px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-top: 8px;
+    }
+    
+    .evolution-positive {
+        background: #dcfce7;
+        color: #16a34a;
+    }
+    
+    .evolution-negative {
+        background: #fee2e2;
+        color: #dc2626;
+    }
+    
+    .table-analytics {
+        width: 100%;
+        margin-top: 20px;
+    }
+    
+    .table-analytics th {
+        background: #f9fafb;
+        padding: 12px;
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 2px solid #e5e7eb;
+    }
+    
+    .table-analytics td {
+        padding: 12px;
+        border-bottom: 1px solid #f3f4f6;
+    }
+    
+    .table-analytics tr:hover {
+        background: #f9fafb;
+    }
+    
+    .period-toggle {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 20px;
+    }
+    
+    .btn-period {
+        padding: 8px 20px;
+        border: 2px solid #e5e7eb;
+        border-radius: 8px;
+        background: white;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+    
+    .btn-period:hover {
+        border-color: #2563eb;
+    }
+    
+    .btn-period.active {
+        background: #2563eb;
+        color: white;
+        border-color: #2563eb;
+    }
+
+    .loading-spinner {
+        text-align: center;
+        padding: 40px;
+        color: #6b7280;
+    }
+
+    .error-message {
+        background: #fee2e2;
+        color: #dc2626;
+        padding: 16px;
+        border-radius: 8px;
+        margin: 16px 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Navigation -->
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Tableaux de Bord</a></li>
+            <li class="breadcrumb-item active">Analyse Commerciale</li>
+        </ol>
+    </nav>
+
+    <!-- En-tête -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h2 mb-2">📊 Analyse Commerciale</h1>
+            <p class="text-muted">Performance des ventes et comportement client</p>
+        </div>
+        <div class="d-flex gap-3">
+            <select id="yearSelect" class="form-select" style="width: auto;">
+                <option value="2023">2023</option>
+                <option value="2024">2024</option>
+                <option value="2025" selected>2025</option>
+                <option value="2026">2026</option>
+            </select>
+            <button class="btn btn-outline-primary" onclick="exportReport()">
+                <i class="bi bi-download"></i> Exporter
+            </button>
+        </div>
+    </div>
+
+    <!-- Sélection de période -->
+    <div class="analysis-section">
+        <div class="period-toggle">
+            <button class="btn-period active" data-period="year" onclick="changePeriod('year')">
+                Analyse sur 12 mois
+            </button>
+            <button class="btn-period" data-period="multi" onclick="changePeriod('multi')">
+                Analyse multi-années
+            </button>
+        </div>
+    </div>
+
+    <!-- Message d'erreur (caché par défaut) -->
+    <div id="errorContainer" style="display: none;">
+        <div class="error-message">
+            <strong>Erreur :</strong> <span id="errorMessage"></span>
+        </div>
+    </div>
+
+    <!-- Métriques principales -->
+    <div class="analysis-section">
+        <h4 class="mb-4">📈 Métriques Clés</h4>
+        <div class="row g-4">
+            <div class="col-md-3">
+                <div class="metric-card">
+                    <div class="metric-label">Total Expéditions</div>
+                    <div class="metric-value" id="total-expeditions">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                    </div>
+                    <div class="evolution-badge evolution-positive" id="evolution-expeditions">
+                        +0%
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="metric-card">
+                    <div class="metric-label">Chiffre d'Affaires</div>
+                    <div class="metric-value" id="total-ca">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                    </div>
+                    <div class="evolution-badge evolution-positive" id="evolution-ca">
+                        +0%
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="metric-card">
+                    <div class="metric-label">Valeur Moyenne</div>
+                    <div class="metric-value" id="avg-value">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                    </div>
+                    <div class="evolution-badge evolution-positive" id="evolution-avg">
+                        +0%
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="metric-card">
+                    <div class="metric-label">Clients Actifs</div>
+                    <div class="metric-value" id="clients-actifs">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                    </div>
+                    <div class="evolution-badge evolution-positive">
+                        <i class="bi bi-people"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Graphiques d'évolution -->
+    <div class="row">
+        <div class="col-lg-6">
+            <div class="analysis-section">
+                <h4 class="mb-4">📊 Évolution du Volume d'Expéditions</h4>
+                <canvas id="chartVolumeEvolution" height="300"></canvas>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="analysis-section">
+                <h4 class="mb-4">💰 Évolution du Chiffre d'Affaires</h4>
+                <canvas id="chartCAEvolution" height="300"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Clients -->
+    <div class="analysis-section">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4>🏆 Top 10 Clients</h4>
+            <div class="btn-group" role="group">
+                <button type="button" class="btn btn-sm btn-outline-primary active" 
+                        id="btnVolume"
+                        onclick="loadTopClients('volume')">
+                    Par Volume
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-primary" 
+                        id="btnValeur"
+                        onclick="loadTopClients('valeur')">
+                    Par Valeur
+                </button>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-lg-8">
+                <canvas id="chartTopClients" height="350"></canvas>
+            </div>
+            <div class="col-lg-4">
+                <table class="table-analytics">
+                    <thead>
+                        <tr>
+                            <th>Rang</th>
+                            <th>Client</th>
+                            <th>Expéditions</th>
+                            <th>CA</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableTopClients">
+                        <tr>
+                            <td colspan="4" class="text-center text-muted">
+                                <div class="spinner-border spinner-border-sm" role="status"></div>
+                                Chargement...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Destinations -->
+    <div class="analysis-section">
+        <h4 class="mb-4">🌍 Destinations les Plus Sollicitées</h4>
+        <div class="row">
+            <div class="col-lg-6">
+                <canvas id="chartDestinations" height="350"></canvas>
+            </div>
+            <div class="col-lg-6">
+                <table class="table-analytics">
+                    <thead>
+                        <tr>
+                            <th>Destination</th>
+                            <th>Expéditions</th>
+                            <th>Montant Total</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableDestinations">
+                        <tr>
+                            <td colspan="3" class="text-center text-muted">
+                                <div class="spinner-border spinner-border-sm" role="status"></div>
+                                Chargement...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Performance par Service -->
+    <div class="analysis-section">
+        <h4 class="mb-4">📦 Performance par Type de Service</h4>
+        <div class="row">
+            <div class="col-lg-7">
+                <canvas id="chartServices" height="300"></canvas>
+            </div>
+            <div class="col-lg-5">
+                <table class="table-analytics">
+                    <thead>
+                        <tr>
+                            <th>Service</th>
+                            <th>Expéditions</th>
+                            <th>CA</th>
+                            <th>Moyenne</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableServices">
+                        <tr>
+                            <td colspan="4" class="text-center text-muted">
+                                <div class="spinner-border spinner-border-sm" role="status"></div>
+                                Chargement...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+
+let charts = {};
+let currentYear = 2025;
+let currentPeriod = 'year';
+let currentClientCriteria = 'volume';
+
+// Fonction utilitaire pour afficher les erreurs
+function showError(message) {
+    console.error('Erreur:', message);
+    const errorContainer = document.getElementById('errorContainer');
+    const errorMessage = document.getElementById('errorMessage');
+    errorMessage.textContent = message;
+    errorContainer.style.display = 'block';
+    
+    // Masquer l'erreur après 5 secondes
+    setTimeout(() => {
+        errorContainer.style.display = 'none';
+    }, 5000);
+}
+
+// Fonction utilitaire pour les appels API
+async function fetchAPI(url) {
+    try {
+        console.log('Appel API:', url);
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        console.log('Réponse API:', result);
+        
+        return result;
+    } catch (error) {
+        console.error('Erreur fetchAPI:', error);
+        showError(`Erreur lors du chargement des données: ${error.message}`);
+        throw error;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Page chargée - Initialisation...');
+    currentYear = parseInt(document.getElementById('yearSelect').value);
+    
+    document.getElementById('yearSelect').addEventListener('change', function() {
+        currentYear = parseInt(this.value);
+        console.log('Année changée:', currentYear);
+        loadAllData();
+    });
+    
+    loadAllData();
+});
+
+function changePeriod(period) {
+    currentPeriod = period;
+    console.log('Période changée:', period);
+    
+    document.querySelectorAll('.btn-period').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    document.querySelector(`[data-period="${period}"]`).classList.add('active');
+    
+    loadAllData();
+}
+
+async function loadAllData() {
+    console.log('=== Chargement de toutes les données ===');
+    console.log('Année:', currentYear, 'Période:', currentPeriod);
+    
+    try {
+        await loadMetrics();
+        await loadVolumeChart();
+        await loadCAChart();
+        await loadTopClients(currentClientCriteria);
+        await loadDestinations();
+        await loadServicesPerformance();
+        console.log('=== Toutes les données chargées ===');
+    } catch (error) {
+        console.error('Erreur lors du chargement:', error);
+    }
+}
+
+async function loadMetrics() {
+    console.log('→ Chargement des métriques...');
+    try {
+        const result = await fetchAPI(`/analytics/api/kpi-dashboard/?year=${currentYear}`);
+        
+        if (result.success && result.data) {
+            const data = result.data;
+            
+            document.getElementById('total-expeditions').textContent = 
+                (data.global.expeditions?.total || 0).toLocaleString();
+            
+            const ca = data.global.chiffre_affaires?.ttc || 0;
+            document.getElementById('total-ca').textContent = 
+                ca > 1000000 ? (ca / 1000000).toFixed(2) + 'M DA' : (ca / 1000).toFixed(1) + 'K DA';
+            
+            const total = data.global.expeditions?.total || 0;
+            const montant = data.global.expeditions?.montant_total || 0;
+            const avgValue = total > 0 ? montant / total : 0;
+            document.getElementById('avg-value').textContent = avgValue.toFixed(0) + ' DA';
+            
+            document.getElementById('clients-actifs').textContent = 
+                (data.clients_actifs || 0).toLocaleString();
+                
+            console.log('✓ Métriques chargées');
+        } else {
+            throw new Error('Données invalides reçues');
+        }
+    } catch (error) {
+        console.error('✗ Erreur métriques:', error);
+        document.getElementById('total-expeditions').textContent = '0';
+        document.getElementById('total-ca').textContent = '0 DA';
+        document.getElementById('avg-value').textContent = '0 DA';
+        document.getElementById('clients-actifs').textContent = '0';
+    }
+}
+
+async function loadVolumeChart() {
+    console.log('→ Chargement graphique volume...');
+    try {
+        const period = currentPeriod === 'year' ? 'month' : 'year';
+        const result = await fetchAPI(`/analytics/api/evolution-expeditions/?year=${currentYear}&period=${period}`);
+        
+        if (result.success && result.data && result.data.length > 0) {
+            const labels = result.data.map(d => formatDate(d.periode, period));
+            const data = result.data.map(d => d.nombre_expeditions || 0);
+            
+            if (charts.volume) charts.volume.destroy();
+            
+            const ctx = document.getElementById('chartVolumeEvolution').getContext('2d');
+            charts.volume = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Nombre d\'expéditions',
+                        data: data,
+                        borderColor: '#2563eb',
+                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+            console.log('✓ Graphique volume chargé');
+        } else {
+            console.warn('⚠ Aucune donnée pour le graphique volume');
+        }
+    } catch (error) {
+        console.error('✗ Erreur graphique volume:', error);
+    }
+}
+
+async function loadCAChart() {
+    console.log('→ Chargement graphique CA...');
+    try {
+        const period = currentPeriod === 'year' ? 'month' : 'year';
+        const result = await fetchAPI(`/analytics/api/chiffre-affaires/?year=${currentYear}&period=${period}`);
+        
+        if (result.success && result.data && result.data.length > 0) {
+            const labels = result.data.map(d => formatDate(d.periode, period));
+            const dataTTC = result.data.map(d => d.ca_ttc || 0);
+            const dataHT = result.data.map(d => d.ca_ht || 0);
+            
+            if (charts.ca) charts.ca.destroy();
+            
+            const ctx = document.getElementById('chartCAEvolution').getContext('2d');
+            charts.ca = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'CA TTC',
+                            data: dataTTC,
+                            backgroundColor: '#10b981'
+                        },
+                        {
+                            label: 'CA HT',
+                            data: dataHT,
+                            backgroundColor: '#6ee7b7'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+            console.log('✓ Graphique CA chargé');
+        } else {
+            console.warn('⚠ Aucune donnée pour le graphique CA');
+        }
+    } catch (error) {
+        console.error('✗ Erreur graphique CA:', error);
+    }
+}
+
+async function loadTopClients(criteria) {
+    console.log('→ Chargement top clients (critère:', criteria + ')');
+    currentClientCriteria = criteria;
+    
+    // Mettre à jour les boutons
+    document.getElementById('btnVolume').classList.remove('active');
+    document.getElementById('btnValeur').classList.remove('active');
+    if (criteria === 'volume') {
+        document.getElementById('btnVolume').classList.add('active');
+    } else {
+        document.getElementById('btnValeur').classList.add('active');
+    }
+    
+    try {
+        const result = await fetchAPI(`/analytics/api/top-clients/?year=${currentYear}&by=${criteria}&limit=10`);
+        
+        if (result.success && result.data && result.data.length > 0) {
+            // Graphique
+            const labels = result.data.map(d => `${d.client__nom || ''} ${d.client__prenom || ''}`);
+            const data = criteria === 'volume' ? 
+                result.data.map(d => d.nombre_expeditions || 0) :
+                result.data.map(d => d.montant_total || 0);
+            
+            if (charts.topClients) charts.topClients.destroy();
+            
+            const ctx = document.getElementById('chartTopClients').getContext('2d');
+            charts.topClients = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: criteria === 'volume' ? 'Nombre d\'expéditions' : 'Montant (DA)',
+                        data: data,
+                        backgroundColor: '#8b5cf6'
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            });
+            
+            // Tableau
+            const tbody = document.getElementById('tableTopClients');
+            tbody.innerHTML = result.data.map((client, index) => `
+                <tr>
+                    <td><strong>${index + 1}</strong></td>
+                    <td>${client.client__nom || 'N/A'} ${client.client__prenom || ''}</td>
+                    <td>${client.nombre_expeditions || 0}</td>
+                    <td>${((client.montant_total || 0) / 1000).toFixed(1)}K DA</td>
+                </tr>
+            `).join('');
+            
+            console.log('✓ Top clients chargé');
+        } else {
+            console.warn('⚠ Aucune donnée pour les top clients');
+            document.getElementById('tableTopClients').innerHTML = 
+                '<tr><td colspan="4" class="text-center text-muted">Aucune donnée disponible</td></tr>';
+        }
+    } catch (error) {
+        console.error('✗ Erreur top clients:', error);
+        document.getElementById('tableTopClients').innerHTML = 
+            '<tr><td colspan="4" class="text-center text-danger">Erreur de chargement</td></tr>';
+    }
+}
+
+async function loadDestinations() {
+    console.log('→ Chargement destinations...');
+    try {
+        const result = await fetchAPI(`/analytics/api/destinations-populaires/?year=${currentYear}&limit=10`);
+        
+        if (result.success && result.data && result.data.length > 0) {
+            // Graphique
+            const labels = result.data.map(d => d.destination__ville || 'N/A');
+            const data = result.data.map(d => d.nombre_expeditions || 0);
+            
+            if (charts.destinations) charts.destinations.destroy();
+            
+            const ctx = document.getElementById('chartDestinations').getContext('2d');
+            charts.destinations = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: [
+                            '#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+                            '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            });
+            
+            // Tableau
+            const tbody = document.getElementById('tableDestinations');
+            tbody.innerHTML = result.data.map(dest => `
+                <tr>
+                    <td>${dest.destination__ville || 'N/A'}, ${dest.destination__pays || 'N/A'}</td>
+                    <td>${dest.nombre_expeditions || 0}</td>
+                    <td>${((dest.montant_total || 0) / 1000).toFixed(1)}K DA</td>
+                </tr>
+            `).join('');
+            
+            console.log('✓ Destinations chargées');
+        } else {
+            console.warn('⚠ Aucune donnée pour les destinations');
+            document.getElementById('tableDestinations').innerHTML = 
+                '<tr><td colspan="3" class="text-center text-muted">Aucune donnée disponible</td></tr>';
+        }
+    } catch (error) {
+        console.error('✗ Erreur destinations:', error);
+        document.getElementById('tableDestinations').innerHTML = 
+            '<tr><td colspan="3" class="text-center text-danger">Erreur de chargement</td></tr>';
+    }
+}
+
+async function loadServicesPerformance() {
+    console.log('→ Chargement services...');
+    try {
+        const result = await fetchAPI(`/analytics/api/services-performance/?year=${currentYear}`);
+        
+        if (result.success && result.data && result.data.length > 0) {
+            // Graphique
+            const labels = result.data.map(d => d.type_service__nom || 'N/A');
+            const data = result.data.map(d => d.nombre_expeditions || 0);
+            
+            if (charts.services) charts.services.destroy();
+            
+            const ctx = document.getElementById('chartServices').getContext('2d');
+            charts.services = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: ['#2563eb', '#10b981', '#f59e0b']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            });
+            
+            // Tableau
+            const tbody = document.getElementById('tableServices');
+            tbody.innerHTML = result.data.map(service => `
+                <tr>
+                    <td>${service.type_service__nom || 'N/A'}</td>
+                    <td>${service.nombre_expeditions || 0}</td>
+                    <td>${((service.montant_total || 0) / 1000).toFixed(1)}K DA</td>
+                    <td>${(service.montant_moyen || 0).toFixed(0)} DA</td>
+                </tr>
+            `).join('');
+            
+            console.log('✓ Services chargés');
+        } else {
+            console.warn('⚠ Aucune donnée pour les services');
+            document.getElementById('tableServices').innerHTML = 
+                '<tr><td colspan="4" class="text-center text-muted">Aucune donnée disponible</td></tr>';
+        }
+    } catch (error) {
+        console.error('✗ Erreur services:', error);
+        document.getElementById('tableServices').innerHTML = 
+            '<tr><td colspan="4" class="text-center text-danger">Erreur de chargement</td></tr>';
+    }
+}
+
+function formatDate(dateStr, period) {
+    const date = new Date(dateStr);
+    if (period === 'month') {
+        return date.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' });
+    } else {
+        return date.getFullYear().toString();
+    }
+}
+
+function exportReport() {
+    alert('Fonctionnalité d\'export en développement');
+}
+</script>
+{% endblock %}

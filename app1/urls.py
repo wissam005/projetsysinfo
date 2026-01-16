@@ -125,4 +125,28 @@ urlpatterns = [
     path('reclamations/<int:reclamation_id>/resoudre/', views.resoudre_reclamation, name='resoudre_reclamation'),
     path('reclamations/<int:reclamation_id>/cloturer/', views.cloturer_reclamation, name='cloturer_reclamation'),
     path('reclamations/<int:reclamation_id>/annuler/', views.annuler_reclamation, name='annuler_reclamation'),
+
+    path('dashboard/', views.dashboard_analytics, name='dashboard'),
+    path('commercial/', views.analyse_commerciale, name='commercial'),
+    path('operationnel/', views.analyse_operationnelle, name='operational'),
+    
+    # API - KPI Global
+    path('analytics/api/kpi-dashboard/', views.api_kpi_dashboard, name='api_kpi_dashboard'),
+    
+    # API - Analyse Commerciale
+    path('analytics/api/evolution-expeditions/', views.api_evolution_expeditions, name='api_evolution_expeditions'),
+    path('analytics/api/chiffre-affaires/', views.api_chiffre_affaires, name='api_chiffre_affaires'),
+    path('analytics/api/top-clients/', views.api_top_clients, name='api_top_clients'),
+    path('analytics/api/destinations-populaires/', views.api_destinations_populaires, name='api_destinations_populaires'),
+    path('analytics/api/services-performance/', views.api_services_performance, name='api_services_performance'),
+    
+    # API - Analyse Opérationnelle
+    path('analytics/api/evolution-tournees/', views.api_evolution_tournees, name='api_evolution_tournees'),
+    path('analytics/api/taux-reussite/', views.api_taux_reussite, name='api_taux_reussite'),
+    path('analytics/api/top-chauffeurs/', views.api_top_chauffeurs, name='api_top_chauffeurs'),
+    path('analytics/api/zones-incidents/', views.api_zones_incidents, name='api_zones_incidents'),
+    path('analytics/api/periodes-activite/', views.api_periodes_activite, name='api_periodes_activite'),
+    
+    # Export
+    path('analytics/export/report/', views.export_report, name='export_report'),
 ]

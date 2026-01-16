@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Analytics{% endblock %}</title>
+</head>
+<body>
+
+    <nav>
+        <a href="{% url 'dashboard' %}">Dashboard</a> |
+        <a href="{% url 'commercial' %}">Commercial</a> |
+        <a href="{% url 'operational' %}">Opérationnel</a>
+    </nav>
+
+    <hr>
+
+    {% block content %}{% endblock %}
+
+</body>
+</html>

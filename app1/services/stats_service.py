@@ -1,333 +1,365 @@
-"""
-stats_service.py - Service pour les statistiques détaillées et KPI
-
-UTILISATION :
-Ce service calcule les indicateurs clés de performance (KPI)
-
-EXEMPLES :
-- StatsService.kpi_expeditions(2025) → Délai moyen, taux ponctualité
-- StatsService.kpi_financiers(2025) → CA, taux recouvrement
-- StatsService.kpi_operationnels(2025) → Km total, consommation
-"""
-
-from django.db.models import Count, Sum, Avg, Q, F
+from django.db.models import Count, Sum, Avg, Max, Min, Q
+from django.db.models.functions import TruncDate
 from datetime import datetime, timedelta
-from decimal import Decimal
-
+from collections import defaultdict
 
 class StatsService:
-    """
-    Service pour les statistiques détaillées et indicateurs clés de performance (KPI)
-    """
+    """Service pour les statistiques détaillées et les comparaisons"""
     
-    # ==================== STATISTIQUES GÉNÉRALES ====================
+    def __init__(self, expedition_model, tournee_model, facture_model, paiement_model):
+        self.Expedition = expedition_model
+        self.Tournee = tournee_model
+        self.Facture = facture_model
+        self.Paiement = paiement_model
     
-    @staticmethod
-    def statistiques_generales(date_debut=None, date_fin=None):
-        """
-        Retourne les statistiques générales du système
-        """
-        from app1.models import Expedition, Tournee, Client, Chauffeur, Vehicule, Incident, Facture, Reclamation
+    # ============== COMPARAISONS ANNUELLES ==============
+    
+    def compare_years(self, year1, year2):
+        """Compare les performances entre deux années"""
+        start_y1 = datetime(year1, 1, 1)
+        end_y1 = datetime(year1, 12, 31, 23, 59, 59)
+        start_y2 = datetime(year2, 1, 1)
+        end_y2 = datetime(year2, 12, 31, 23, 59, 59)
         
-        expeditions = Expedition.objects.all()
-        tournees = Tournee.objects.all()
-        factures = Facture.objects.all()
+        # Expéditions
+        exp_y1 = self.Expedition.objects.filter(
+            date_creation__gte=start_y1,
+            date_creation__lte=end_y1
+        ).aggregate(
+            count=Count('id'),
+            total=Sum('montant_total')
+        )
         
-        if date_debut and date_fin:
-            expeditions = expeditions.filter(date_creation__range=[date_debut, date_fin])
-            tournees = tournees.filter(date_depart__range=[date_debut, date_fin])
-            factures = factures.filter(date_creation__range=[date_debut, date_fin])
+        exp_y2 = self.Expedition.objects.filter(
+            date_creation__gte=start_y2,
+            date_creation__lte=end_y2
+        ).aggregate(
+            count=Count('id'),
+            total=Sum('montant_total')
+        )
+        
+        # Tournées
+        tour_y1 = self.Tournee.objects.filter(
+            date_tournee__gte=start_y1,
+            date_tournee__lte=end_y1
+        ).count()
+        
+        tour_y2 = self.Tournee.objects.filter(
+            date_tournee__gte=start_y2,
+            date_tournee__lte=end_y2
+        ).count()
+        
+        # Calcul des variations
+        var_exp = ((exp_y2['count'] - exp_y1['count']) / exp_y1['count'] * 100) if exp_y1['count'] > 0 else 0
+        var_montant = ((exp_y2['total'] - exp_y1['total']) / exp_y1['total'] * 100) if exp_y1['total'] else 0
+        var_tournees = ((tour_y2 - tour_y1) / tour_y1 * 100) if tour_y1 > 0 else 0
         
         return {
-            'total_expeditions': expeditions.count(),
-            'total_clients': Client.objects.filter(est_actif=True).count(),
-            'total_chauffeurs': Chauffeur.objects.filter(disponibilite=True).count(),
-            'total_vehicules': Vehicule.objects.filter(etat='OPERATIONNEL').count(),
-            'total_tournees': tournees.count(),
-            'ca_total': factures.aggregate(total=Sum('montant_ttc'))['total'] or 0,
-            'expeditions_en_cours': expeditions.filter(
-                statut__in=['EN_ATTENTE', 'EN_TRANSIT', 'EN_LIVRAISON']
-            ).count(),
-            'incidents_actifs': Incident.objects.filter(statut='EN_COURS').count(),
-            'reclamations_ouvertes': Reclamation.objects.filter(
-                statut__in=['OUVERTE', 'EN_COURS']
-            ).count(),
-        }
-    
-    # ==================== KPI EXPÉDITIONS ====================
-    
-    @staticmethod
-    def kpi_expeditions(annee=None):
-        """
-        Calcule les KPI liés aux expéditions
-        """
-        from app1.models import Expedition
-        
-        expeditions = Expedition.objects.all()
-        
-        if annee:
-            expeditions = expeditions.filter(date_creation__year=annee)
-        
-        total = expeditions.count()
-        
-        return {
-            'panier_moyen': expeditions.aggregate(avg=Avg('montant_total'))['avg'] or 0,
-            'poids_moyen': expeditions.aggregate(avg=Avg('poids'))['avg'] or 0,
-            'volume_moyen': expeditions.aggregate(avg=Avg('volume'))['avg'] or 0,
-            'repartition_statuts': expeditions.values('statut').annotate(
-                count=Count('id'),
-                pourcentage=Count('id') * 100.0 / total if total > 0 else 0
-            )
-        }
-    
-    # ==================== KPI FINANCIERS ====================
-    
-    @staticmethod
-    def kpi_financiers(annee=None):
-        """
-        Calcule les KPI financiers
-        """
-        from app1.models import Facture, Paiement, Client
-        
-        factures = Facture.objects.all()
-        paiements = Paiement.objects.all()
-        
-        if annee:
-            factures = factures.filter(date_creation__year=annee)
-            paiements = paiements.filter(date_paiement__year=annee)
-        
-        ca_total = factures.aggregate(total=Sum('montant_ttc'))['total'] or 0
-        ca_encaisse = paiements.aggregate(total=Sum('montant_paye'))['total'] or 0
-        
-        factures_payees = factures.filter(statut='PAYEE').count()
-        factures_impayees = factures.filter(statut__in=['IMPAYEE', 'PARTIELLEMENT_PAYEE']).count()
-        total_factures = factures.count()
-        
-        return {
-            'ca_total': ca_total,
-            'ca_encaisse': ca_encaisse,
-            'ca_restant': ca_total - ca_encaisse,
-            'taux_recouvrement': (ca_encaisse / ca_total * 100) if ca_total > 0 else 0,
-            'nb_factures_payees': factures_payees,
-            'nb_factures_impayees': factures_impayees,
-            'taux_paiement': (factures_payees / total_factures * 100) if total_factures > 0 else 0,
-            'montant_moyen_facture': factures.aggregate(avg=Avg('montant_ttc'))['avg'] or 0,
-            'clients_debiteurs': Client.objects.filter(solde__gt=0).count(),
-            'total_creances': Client.objects.aggregate(total=Sum('solde'))['total'] or 0
-        }
-    
-    # ==================== KPI OPÉRATIONNELS ====================
-    
-    @staticmethod
-    def kpi_operationnels(annee=None):
-        """
-        Calcule les KPI opérationnels (tournées, véhicules, chauffeurs)
-        """
-        from app1.models import Tournee, Vehicule, Chauffeur
-        
-        tournees = Tournee.objects.all()
-        
-        if annee:
-            tournees = tournees.filter(date_depart__year=annee)
-        
-        tournees_terminees = tournees.filter(statut='TERMINEE')
-        
-        return {
-            'nb_tournees_total': tournees.count(),
-            'nb_tournees_terminees': tournees_terminees.count(),
-            'km_total': tournees_terminees.aggregate(total=Sum('kilometrage_parcouru'))['total'] or 0,
-            'km_moyen_tournee': tournees_terminees.aggregate(avg=Avg('kilometrage_parcouru'))['avg'] or 0,
-            'consommation_moyenne': tournees_terminees.aggregate(
-                avg=Avg('consommation_carburant')
-            )['avg'] or 0,
-            'taux_disponibilite_chauffeurs': StatsService._calculer_taux_disponibilite_chauffeurs(),
-        }
-    
-    # ==================== KPI QUALITÉ ====================
-    
-    @staticmethod
-    def kpi_qualite(annee=None):
-        """
-        Calcule les KPI de qualité de service
-        """
-        from app1.models import Incident, Reclamation
-        
-        incidents = Incident.objects.all()
-        reclamations = Reclamation.objects.all()
-        
-        if annee:
-            incidents = incidents.filter(date_heure_incident__year=annee)
-            reclamations = reclamations.filter(date_creation__year=annee)
-        
-        return {
-            'nb_incidents_total': incidents.count(),
-            'incidents_par_severite': incidents.values('severite').annotate(
-                count=Count('id')
-            ),
-            'taux_incidents': StatsService._calculer_taux_incidents(annee),
-            'nb_reclamations': reclamations.count(),
-            'reclamations_resolues': reclamations.filter(statut='RESOLUE').count(),
-        }
-    
-    # ==================== MÉTHODES UTILITAIRES PRIVÉES ====================
-    
-    @staticmethod
-    def _calculer_taux_disponibilite_chauffeurs():
-        """Calcule le taux de disponibilité des chauffeurs"""
-        from app1.models import Chauffeur
-        
-        total = Chauffeur.objects.count()
-        disponibles = Chauffeur.objects.filter(disponibilite=True).count()
-        
-        return (disponibles / total * 100) if total > 0 else 0
-    
-    @staticmethod
-    def _calculer_taux_incidents(annee=None):
-        """Calcule le taux d'incidents par rapport aux expéditions"""
-        from app1.models import Expedition, Incident
-        
-        expeditions = Expedition.objects.all()
-        incidents = Incident.objects.filter(expedition__isnull=False)
-        
-        if annee:
-            expeditions = expeditions.filter(date_creation__year=annee)
-            incidents = incidents.filter(date_heure_incident__year=annee)
-        
-        total_exp = expeditions.count()
-        total_incidents = incidents.count()
-        
-        return (total_incidents / total_exp * 100) if total_exp > 0 else 0
-    
-    # ==================== COMPARAISONS TEMPORELLES ====================
-    
-    @staticmethod
-    def comparaison_periodes(date_debut1, date_fin1, date_debut2, date_fin2):
-        """
-        Compare les performances entre deux périodes
-        """
-        from app1.models import Expedition
-        
-        # Période 1
-        exp1 = Expedition.objects.filter(date_creation__range=[date_debut1, date_fin1])
-        ca1 = exp1.aggregate(total=Sum('montant_total'))['total'] or 0
-        
-        # Période 2
-        exp2 = Expedition.objects.filter(date_creation__range=[date_debut2, date_fin2])
-        ca2 = exp2.aggregate(total=Sum('montant_total'))['total'] or 0
-        
-        return {
-            'periode1': {
-                'nb_expeditions': exp1.count(),
-                'ca': ca1,
-                'panier_moyen': exp1.aggregate(avg=Avg('montant_total'))['avg'] or 0
+            'year1': {
+                'year': year1,
+                'expeditions': exp_y1['count'] or 0,
+                'montant_total': float(exp_y1['total'] or 0),
+                'tournees': tour_y1
             },
-            'periode2': {
-                'nb_expeditions': exp2.count(),
-                'ca': ca2,
-                'panier_moyen': exp2.aggregate(avg=Avg('montant_total'))['avg'] or 0
+            'year2': {
+                'year': year2,
+                'expeditions': exp_y2['count'] or 0,
+                'montant_total': float(exp_y2['total'] or 0),
+                'tournees': tour_y2
             },
-            'evolution': {
-                'expeditions': StatsService._calculer_variation(exp1.count(), exp2.count()),
-                'ca': StatsService._calculer_variation(float(ca1), float(ca2))
+            'variations': {
+                'expeditions': round(var_exp, 2),
+                'montant': round(var_montant, 2),
+                'tournees': round(var_tournees, 2)
             }
         }
     
-    @staticmethod
-    def _calculer_variation(valeur1, valeur2):
-        """Calcule la variation en pourcentage entre deux valeurs"""
-        if valeur1 == 0:
-            return 0 if valeur2 == 0 else 100
-        
-        return ((valeur2 - valeur1) / valeur1) * 100
+    # ============== STATISTIQUES PAR PÉRIODE ==============
     
-    # ==================== ANALYSES AVANCÉES ====================
+    def get_daily_stats(self, start_date, end_date):
+        """Statistiques quotidiennes"""
+        data = self.Expedition.objects.filter(
+            date_creation__gte=start_date,
+            date_creation__lte=end_date
+        ).annotate(
+            jour=TruncDate('date_creation')
+        ).values('jour').annotate(
+            nombre=Count('id'),
+            montant=Sum('montant_total')
+        ).order_by('jour')
+        
+        return list(data)
     
-    @staticmethod
-    def analyse_saisonnalite(annee):
-        """
-        Analyse la saisonnalité des expéditions par trimestre et mois
-        """
-        from app1.models import Expedition
-        from django.db.models.functions import TruncMonth
+    def get_monthly_summary(self, year, month):
+        """Résumé mensuel détaillé"""
+        start = datetime(year, month, 1)
+        if month == 12:
+            end = datetime(year + 1, 1, 1) - timedelta(seconds=1)
+        else:
+            end = datetime(year, month + 1, 1) - timedelta(seconds=1)
         
-        expeditions = Expedition.objects.filter(date_creation__year=annee)
+        # Expéditions
+        expeditions = self.Expedition.objects.filter(
+            date_creation__gte=start,
+            date_creation__lte=end
+        ).aggregate(
+            total=Count('id'),
+            montant_total=Sum('montant_total'),
+            montant_moyen=Avg('montant_total'),
+            poids_total=Sum('poids'),
+            volume_total=Sum('volume')
+        )
         
-        # Par trimestre
-        par_trimestre = []
-        for trimestre in range(1, 5):
-            debut_mois = (trimestre - 1) * 3 + 1
-            fin_mois = trimestre * 3
-            
-            exp_trimestre = expeditions.filter(
-                date_creation__month__gte=debut_mois,
-                date_creation__month__lte=fin_mois
-            )
-            
-            par_trimestre.append({
-                'trimestre': f'T{trimestre}',
-                'nb_expeditions': exp_trimestre.count(),
-                'ca': exp_trimestre.aggregate(total=Sum('montant_total'))['total'] or 0
-            })
+        # Par statut
+        par_statut = self.Expedition.objects.filter(
+            date_creation__gte=start,
+            date_creation__lte=end
+        ).values('statut').annotate(
+            nombre=Count('id')
+        )
         
-        # Par mois
-        par_mois = expeditions.annotate(
-            mois=TruncMonth('date_creation')
-        ).values('mois').annotate(
-            nb_expeditions=Count('id'),
-            ca=Sum('montant_total')
-        ).order_by('mois')
+        # Tournées
+        tournees = self.Tournee.objects.filter(
+            date_tournee__gte=start,
+            date_tournee__lte=end
+        ).aggregate(
+            total=Count('id'),
+            km_total=Sum('kilometrage'),
+            duree_totale=Sum('duree'),
+            carburant_total=Sum('consommation_carburant')
+        )
+        
+        # Facturation
+        facturation = self.Facture.objects.filter(
+            date_facture__gte=start,
+            date_facture__lte=end
+        ).aggregate(
+            nombre_factures=Count('id'),
+            ca_ht=Sum('montant_ht'),
+            ca_ttc=Sum('montant_ttc')
+        )
         
         return {
-            'par_trimestre': par_trimestre,
-            'par_mois': list(par_mois)
+            'periode': {
+                'annee': year,
+                'mois': month,
+                'debut': start,
+                'fin': end
+            },
+            'expeditions': {
+                'total': expeditions['total'] or 0,
+                'montant_total': float(expeditions['montant_total'] or 0),
+                'montant_moyen': float(expeditions['montant_moyen'] or 0),
+                'poids_total': float(expeditions['poids_total'] or 0),
+                'volume_total': float(expeditions['volume_total'] or 0),
+                'par_statut': list(par_statut)
+            },
+            'tournees': {
+                'total': tournees['total'] or 0,
+                'kilometrage_total': float(tournees['km_total'] or 0),
+                'duree_totale': float(tournees['duree_totale'] or 0),
+                'carburant_total': float(tournees['carburant_total'] or 0)
+            },
+            'facturation': {
+                'nombre_factures': facturation['nombre_factures'] or 0,
+                'ca_ht': float(facturation['ca_ht'] or 0),
+                'ca_ttc': float(facturation['ca_ttc'] or 0)
+            }
         }
     
-    @staticmethod
-    def analyse_rentabilite_destinations(annee=None):
-        """
-        Analyse la rentabilité par destination
-        """
-        from app1.models import Expedition
-        
-        expeditions = Expedition.objects.all()
-        
-        if annee:
-            expeditions = expeditions.filter(date_creation__year=annee)
-        
-        rentabilite = expeditions.values(
-            'destination__ville',
-            'destination__wilaya',
-            'destination__zone_logistique'
+    # ============== ANALYSES DE RENTABILITÉ ==============
+    
+    def get_rentabilite_par_service(self, start_date, end_date):
+        """Analyse de rentabilité par type de service"""
+        data = self.Expedition.objects.filter(
+            date_creation__gte=start_date,
+            date_creation__lte=end_date
+        ).values(
+            'type_service__nom'
         ).annotate(
-            nb_expeditions=Count('id'),
+            nombre_expeditions=Count('id'),
             ca_total=Sum('montant_total'),
             ca_moyen=Avg('montant_total'),
-            poids_total=Sum('poids')
+            poids_moyen=Avg('poids'),
+            volume_moyen=Avg('volume')
         ).order_by('-ca_total')
         
-        return list(rentabilite)
+        result = list(data)
+        total_ca = sum(item['ca_total'] or 0 for item in result)
+        
+        for item in result:
+            if total_ca > 0:
+                item['part_ca'] = round((item['ca_total'] / total_ca) * 100, 2)
+            else:
+                item['part_ca'] = 0
+        
+        return result
     
-    @staticmethod
-    def analyse_performance_vehicules(annee=None):
-        """
-        Analyse les performances des véhicules
-        """
-        from app1.models import Tournee
-        
-        tournees = Tournee.objects.filter(statut='TERMINEE')
-        
-        if annee:
-            tournees = tournees.filter(date_depart__year=annee)
-        
-        performance = tournees.values(
-            'vehicule__immatriculation',
-            'vehicule__marque',
-            'vehicule__modele'
+    def get_rentabilite_par_destination(self, start_date, end_date):
+        """Analyse de rentabilité par destination"""
+        data = self.Expedition.objects.filter(
+            date_creation__gte=start_date,
+            date_creation__lte=end_date
+        ).values(
+            'destination__ville',
+            'destination__pays'
         ).annotate(
-            nb_tournees=Count('id'),
-            km_total=Sum('kilometrage_parcouru'),
-            consommation_totale=Sum('consommation_carburant'),
-            consommation_moyenne=Avg('consommation_carburant')
-        ).order_by('-nb_tournees')
+            nombre_expeditions=Count('id'),
+            ca_total=Sum('montant_total'),
+            ca_moyen=Avg('montant_total')
+        ).order_by('-ca_total')
         
-        return list(performance)
+        return list(data)
+    
+    # ============== STATISTIQUES DE PAIEMENT ==============
+    
+    def get_paiements_stats(self, start_date, end_date):
+        """Statistiques sur les paiements"""
+        # Paiements reçus
+        paiements = self.Paiement.objects.filter(
+            date_paiement__gte=start_date,
+            date_paiement__lte=end_date
+        ).aggregate(
+            total_paiements=Count('id'),
+            montant_total=Sum('montant_paye'),
+            montant_moyen=Avg('montant_paye')
+        )
+        
+        # Par mode de paiement
+        par_mode = self.Paiement.objects.filter(
+            date_paiement__gte=start_date,
+            date_paiement__lte=end_date
+        ).values('mode_paiement').annotate(
+            nombre=Count('id'),
+            montant=Sum('montant_paye')
+        ).order_by('-montant')
+        
+        # Factures en attente
+        factures_attente = self.Facture.objects.filter(
+            date_facture__gte=start_date,
+            date_facture__lte=end_date,
+            statut='en attente'
+        ).aggregate(
+            nombre=Count('id'),
+            montant_du=Sum('montant_ttc')
+        )
+        
+        return {
+            'paiements_recus': {
+                'total': paiements['total_paiements'] or 0,
+                'montant_total': float(paiements['montant_total'] or 0),
+                'montant_moyen': float(paiements['montant_moyen'] or 0)
+            },
+            'par_mode': list(par_mode),
+            'factures_attente': {
+                'nombre': factures_attente['nombre'] or 0,
+                'montant_du': float(factures_attente['montant_du'] or 0)
+            }
+        }
+    
+    # ============== PRÉVISIONS SIMPLES ==============
+    
+    def predict_next_month(self, model_type='expeditions'):
+        """Prévision simple basée sur la moyenne des 3 derniers mois"""
+        today = datetime.now()
+        three_months_ago = today - timedelta(days=90)
+        
+        if model_type == 'expeditions':
+            # Moyenne mensuelle des 3 derniers mois
+            data = self.Expedition.objects.filter(
+                date_creation__gte=three_months_ago,
+                date_creation__lte=today
+            ).aggregate(
+                total=Count('id'),
+                montant_total=Sum('montant_total')
+            )
+            
+            avg_per_month = (data['total'] or 0) / 3
+            avg_montant = (data['montant_total'] or 0) / 3
+            
+            return {
+                'type': 'expeditions',
+                'prevision_nombre': round(avg_per_month),
+                'prevision_montant': round(float(avg_montant), 2),
+                'periode': 'mois prochain',
+                'methode': 'moyenne mobile 3 mois'
+            }
+        
+        elif model_type == 'tournees':
+            data = self.Tournee.objects.filter(
+                date_tournee__gte=three_months_ago,
+                date_tournee__lte=today
+            ).aggregate(
+                total=Count('id'),
+                km_total=Sum('kilometrage')
+            )
+            
+            avg_per_month = (data['total'] or 0) / 3
+            avg_km = (data['km_total'] or 0) / 3
+            
+            return {
+                'type': 'tournees',
+                'prevision_nombre': round(avg_per_month),
+                'prevision_km': round(float(avg_km), 2),
+                'periode': 'mois prochain',
+                'methode': 'moyenne mobile 3 mois'
+            }
+    
+    # ============== INDICATEURS DE PERFORMANCE (KPI) ==============
+    
+    def calculate_kpis(self, start_date, end_date):
+        """Calcule les principaux KPI"""
+        # Délai moyen de livraison
+        expeditions_livrees = self.Expedition.objects.filter(
+            date_creation__gte=start_date,
+            date_creation__lte=end_date,
+            statut='livré',
+            date_livraison__isnull=False
+        )
+        
+        delais = []
+        for exp in expeditions_livrees:
+            delai = (exp.date_livraison - exp.date_creation).days
+            if delai >= 0:
+                delais.append(delai)
+        
+        delai_moyen = sum(delais) / len(delais) if delais else 0
+        
+        # Coût moyen par tournée
+        cout_moyen_tournee = self.Tournee.objects.filter(
+            date_tournee__gte=start_date,
+            date_tournee__lte=end_date
+        ).aggregate(
+            km_total=Sum('kilometrage'),
+            carburant_total=Sum('consommation_carburant'),
+            count=Count('id')
+        )
+        
+        # Taux de remplissage des véhicules
+        total_capacite = 0
+        total_utilise = 0
+        
+        tournees = self.Tournee.objects.filter(
+            date_tournee__gte=start_date,
+            date_tournee__lte=end_date
+        ).select_related('vehicule')
+        
+        for tournee in tournees:
+            if tournee.vehicule:
+                total_capacite += tournee.vehicule.capacite
+                # Somme des volumes des expéditions de cette tournée
+                volume_utilise = tournee.expeditions.aggregate(
+                    total=Sum('volume')
+                )['total'] or 0
+                total_utilise += volume_utilise
+        
+        taux_remplissage = (total_utilise / total_capacite * 100) if total_capacite > 0 else 0
+        
+        return {
+            'delai_moyen_livraison': round(delai_moyen, 1),
+            'cout_moyen_tournee': {
+                'kilometrage': round(float(cout_moyen_tournee['km_total'] or 0) / (cout_moyen_tournee['count'] or 1), 2),
+                'carburant': round(float(cout_moyen_tournee['carburant_total'] or 0) / (cout_moyen_tournee['count'] or 1), 2)
+            },
+            'taux_remplissage_vehicules': round(taux_remplissage, 2)
+        }
